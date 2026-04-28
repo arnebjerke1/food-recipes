@@ -21,14 +21,9 @@ export default function UserProfilePage() {
   const loadProfile = async () => {
     setLoading(true)
     try {
-      const [profileRes, recipesRes] = await Promise.all([
-        api.get(`/users/${username}`),
-        api.get(`/recipes?userId=${username}`)
-      ])
+      const profileRes = await api.get(`/users/${username}`)
       setProfile(profileRes.data)
       setFollowing(profileRes.data.isFollowing)
-      // userId param in recipes route is a username? We need the actual user ID
-      // Let's fix: use the returned profile id
       const userRecipes = await api.get(`/recipes?userId=${profileRes.data.id}`)
       setRecipes(userRecipes.data)
     } catch {

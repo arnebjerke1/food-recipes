@@ -5,16 +5,47 @@ const { requireAuth } = require('./auth');
 
 const router = express.Router();
 
+// Block requests to private / loopback IP ranges to prevent SSRF
+function isPrivateUrl(urlStr) {
+  let hostname;
+  try {
+    hostname = new URL(urlStr).hostname;
+  } catch {
+    return true;
+  }
+  // Block localhost and common private ranges
+  const privatePatterns = [
+    /^localhost$/i,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^::1$/,
+    /^0\.0\.0\.0$/,
+    /^169\.254\./,   // link-local
+  ];
+  return privatePatterns.some((re) => re.test(hostname));
+}
+
 // Parse recipe from a URL
 router.post('/parse-url', requireAuth, async (req, res) => {
   const { url } = req.body;
 
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
+  let parsed;
   try {
-    new URL(url);
+    parsed = new URL(url);
   } catch {
     return res.status(400).json({ error: 'Invalid URL' });
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: 'Only http and https URLs are supported' });
+  }
+
+  if (isPrivateUrl(url)) {
+    return res.status(400).json({ error: 'URL points to a private or restricted address' });
   }
 
   try {
@@ -29,7 +60,7 @@ router.post('/parse-url', requireAuth, async (req, res) => {
     const recipe = extractRecipe($, url);
     res.json(recipe);
   } catch (err) {
-    if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+    if (err.code === 'ECONNABORTED') {
       return res.status(408).json({ error: 'Request timed out. The site may be unavailable.' });
     }
     res.status(502).json({ error: 'Could not fetch the URL. Please add the recipe manually.' });

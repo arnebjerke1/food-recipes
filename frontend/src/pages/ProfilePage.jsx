@@ -38,7 +38,9 @@ export default function ProfilePage() {
       await updateProfile({ bio, avatar_url: avatarUrl })
       setEditing(false)
     } catch {}
-    finally { setSaving(false) }
+    finally {
+      setSaving(false)
+    }
   }
 
   const handleLogout = () => {
