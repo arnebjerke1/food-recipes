@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 
@@ -103,6 +103,48 @@ export default function AddRecipePage() {
   })
 
   const navigate = useNavigate()
+  const didAutoImport = useRef(false)
+
+  useEffect(() => {
+    if (didAutoImport.current) return
+    const tryClipboard = async () => {
+      try {
+        const text = await navigator.clipboard.readText()
+        const trimmed = text?.trim()
+        if (trimmed && /^https?:\/\/.+/i.test(trimmed)) {
+          didAutoImport.current = true
+          setUrl(trimmed)
+          setParsing(true)
+          setParseError('')
+          try {
+            const res = await api.post('/scraper/parse-url', { url: trimmed })
+            const data = res.data
+            setForm({
+              title: data.title || '',
+              description: data.description || '',
+              ingredients: data.ingredients?.length ? data.ingredients : [''],
+              steps: data.steps?.length ? data.steps : [''],
+              image_url: data.image_url || '',
+              source_url: data.source_url || trimmed,
+              servings: data.servings || 4,
+              prep_time: data.prep_time || 0,
+              cook_time: data.cook_time || 0,
+              tags: data.tags || [],
+              is_public: true,
+            })
+            setTab('manual')
+          } catch (err) {
+            setParseError(err.response?.data?.error || 'Could not parse recipe. Please add it manually.')
+          } finally {
+            setParsing(false)
+          }
+        }
+      } catch {
+        // Clipboard permission denied or unavailable — do nothing
+      }
+    }
+    tryClipboard()
+  }, [])
 
   const handleParseUrl = async (e) => {
     e.preventDefault()
@@ -192,6 +234,15 @@ export default function AddRecipePage() {
             <p className="text-gray-500 text-sm mb-4">
               Paste a URL from any recipe website and we'll automatically extract the recipe for you.
             </p>
+            {parsing && (
+              <div className="bg-brand-50 border border-brand-200 text-brand-700 text-sm px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
+                <svg className="animate-spin w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                Detected a URL in your clipboard — importing…
+              </div>
+            )}
             <form onSubmit={handleParseUrl} className="space-y-4">
               {parseError && (
                 <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-xl">
