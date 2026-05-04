@@ -119,6 +119,17 @@ function parseIngredient(str) {
   return { amount: "", unit: "", name: str };
 }
 
+// Strip HTML tags from a string and trim leading list numbering (e.g. "3. ", "Step 2:")
+function cleanStepText(str) {
+  if (!str) return "";
+  // Use a temporary element to strip HTML tags safely
+  const tmp = document.createElement("div");
+  tmp.innerHTML = str;
+  const text = (tmp.textContent || tmp.innerText || "").trim();
+  // Remove leading ordinal prefixes like "1.", "2)", "Step 3:", "Steg 4."
+  return text.replace(/^\s*(?:step|steg)\s*\d+[.:)]\s*/i, "").replace(/^\s*\d+[.)]\s*/, "").trim();
+}
+
 // Parse instruction — can be string, HowToStep, or array
 function parseSteps(instructions) {
   if (!instructions) return [];
@@ -126,17 +137,17 @@ function parseSteps(instructions) {
   const steps = [];
   for (const item of raw) {
     if (typeof item === "string") {
-      steps.push(item.trim());
+      steps.push(cleanStepText(item));
     } else if (item["@type"] === "HowToStep") {
-      steps.push((item.text || item.name || "").trim());
+      steps.push(cleanStepText(item.text || item.name || ""));
     } else if (item["@type"] === "HowToSection") {
       // Section contains steps
       const sub = Array.isArray(item.itemListElement) ? item.itemListElement : [];
       for (const s of sub) {
-        steps.push((s.text || s.name || "").trim());
+        steps.push(cleanStepText(s.text || s.name || ""));
       }
     } else if (item.text) {
-      steps.push(item.text.trim());
+      steps.push(cleanStepText(item.text));
     }
   }
   return steps.filter(Boolean);
@@ -180,14 +191,14 @@ function parseMicrodataRecipe(doc, url) {
   const stepEls = root.querySelectorAll('[itemprop="recipeInstructions"]');
   let steps = [];
   if (stepEls.length > 1) {
-    steps = Array.from(stepEls).map(el => el.textContent.trim()).filter(Boolean);
+    steps = Array.from(stepEls).map(el => cleanStepText(el.textContent)).filter(Boolean);
   } else if (stepEls.length === 1) {
     // Single block — try splitting on <li> or numbered lines
     const liItems = Array.from(stepEls[0].querySelectorAll("li"));
     if (liItems.length) {
-      steps = liItems.map(li => li.textContent.trim()).filter(Boolean);
+      steps = liItems.map(li => cleanStepText(li.textContent)).filter(Boolean);
     } else {
-      steps = stepEls[0].textContent.trim().split(/\n+/).map(s => s.trim()).filter(Boolean);
+      steps = cleanStepText(stepEls[0].textContent).split(/\n+/).map(s => s.trim()).filter(Boolean);
     }
   }
 
