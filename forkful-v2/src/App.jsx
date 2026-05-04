@@ -6,50 +6,89 @@ const STORAGE_KEY = "forkful-v2-recipes";
 // Fetches a page via CORS proxy, finds JSON-LD Recipe data, returns structured recipe.
 // No API keys needed — this is free, public, standards-based data.
 
-const PROXY = "https://api.allorigins.win/get?url=";
+const PROXIES = [
+  {
+    url: (target) => `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`,
+    rawText: false,
+  },
+  {
+    url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+    rawText: true,
+  },
+];
+
+class RecipeNotFoundError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RecipeNotFoundError";
+  }
+}
+
+function isNetworkError(err) {
+  const msg = (err.message || "").toLowerCase();
+  return (
+    msg === "failed to fetch" ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed")
+  );
+}
 
 async function fetchRecipeFromPage(url) {
-  const res = await fetch(PROXY + encodeURIComponent(url));
-  if (!res.ok) throw new Error(`Kunne ikke hente siden (${res.status})`);
-  const json = await res.json();
-  const html = json.contents;
-  if (!html) throw new Error("Tom respons fra siden");
+  let lastError = null;
 
-  // Parse HTML string
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-
-  // Find all JSON-LD scripts
-  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
-  let recipe = null;
-
-  for (const script of scripts) {
+  for (const proxy of PROXIES) {
     try {
-      const data = JSON.parse(script.textContent);
-      // Can be single object or array
-      const candidates = Array.isArray(data) ? data : [data];
-      // Also check @graph
-      for (const item of candidates) {
-        if (item["@graph"]) candidates.push(...item["@graph"]);
-        if (item["@type"] === "Recipe" ||
-            (Array.isArray(item["@type"]) && item["@type"].includes("Recipe"))) {
-          recipe = item;
-          break;
-        }
+      const res = await fetch(proxy.url(url));
+      if (!res.ok) {
+        lastError = new Error(`Kunne ikke hente siden (${res.status})`);
+        continue;
       }
-      if (recipe) break;
-    } catch {}
+      const html = proxy.rawText ? await res.text() : (await res.json()).contents;
+      if (!html) {
+        lastError = new Error("Tom respons fra siden");
+        continue;
+      }
+
+      // Parse HTML string
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+
+      // Find all JSON-LD scripts
+      const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+      let recipe = null;
+
+      for (const script of scripts) {
+        try {
+          const data = JSON.parse(script.textContent);
+          // Can be single object or array
+          const candidates = Array.isArray(data) ? data : [data];
+          // Also check @graph
+          for (const item of candidates) {
+            if (item["@graph"]) candidates.push(...item["@graph"]);
+            if (item["@type"] === "Recipe" ||
+                (Array.isArray(item["@type"]) && item["@type"].includes("Recipe"))) {
+              recipe = item;
+              break;
+            }
+          }
+          if (recipe) break;
+        } catch {}
+      }
+
+      if (!recipe) {
+        throw new RecipeNotFoundError(`Ingen oppskriftsdata (JSON-LD) funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
+      }
+
+      return parseSchemaRecipe(recipe, url, doc);
+    } catch (err) {
+      // RecipeNotFoundError means the page was fetched OK but no recipe data found — no point retrying
+      if (err instanceof RecipeNotFoundError) throw err;
+      lastError = err;
+    }
   }
 
-  if (!recipe) {
-    // Fallback: try og:title + og:image + scrape basic info
-    const title = doc.querySelector('meta[property="og:title"]')?.content ||
-                  doc.querySelector("title")?.textContent || "Ukjent oppskrift";
-    const image = doc.querySelector('meta[property="og:image"]')?.content || null;
-    throw new Error(`Ingen oppskriftsdata (JSON-LD) funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
-  }
-
-  return parseSchemaRecipe(recipe, url, doc);
+  throw lastError || new Error("Kunne ikke hente oppskriften. Sjekk internettforbindelsen din og prøv igjen.");
 }
 
 // Parse ISO 8601 duration like PT1H30M → "1 t 30 min"
@@ -554,7 +593,9 @@ export default function App() {
       const data = await fetchRecipe(u, setStatus);
       addRecipe(data, u);
     } catch (e) {
-      setError(e.message || "Ukjent feil");
+      setError(isNetworkError(e)
+        ? "Kunne ikke koble til for å hente oppskriften. Sjekk internettforbindelsen din og prøv igjen."
+        : e.message || "Ukjent feil");
     } finally { setLoading(false); setStatus(""); }
   }
 
