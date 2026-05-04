@@ -76,11 +76,13 @@ async function fetchRecipeFromPage(url) {
         } catch {}
       }
 
-      if (!recipe) {
-        throw new RecipeNotFoundError(`Ingen oppskriftsdata (JSON-LD) funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
-      }
+      if (recipe) return parseSchemaRecipe(recipe, url, doc);
 
-      return parseSchemaRecipe(recipe, url, doc);
+      // Fallback: try schema.org microdata (itemscope/itemprop) — used by older WordPress recipe plugins
+      const microdataRecipe = parseMicrodataRecipe(doc, url);
+      if (microdataRecipe) return microdataRecipe;
+
+      throw new RecipeNotFoundError(`Ingen oppskriftsdata funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
     } catch (err) {
       // RecipeNotFoundError means the page was fetched OK but no recipe data found — no point retrying
       if (err instanceof RecipeNotFoundError) throw err;
@@ -138,6 +140,65 @@ function parseSteps(instructions) {
     }
   }
   return steps.filter(Boolean);
+}
+
+// ── Schema.org microdata extractor ────────────────────────────────────────────
+// Handles pages that use itemscope/itemprop instead of JSON-LD (e.g. EasyRecipe, old WP plugins).
+function parseMicrodataRecipe(doc, url) {
+  // Look for an element with itemtype containing "schema.org/Recipe"
+  const root = doc.querySelector('[itemtype*="schema.org/Recipe"]');
+  if (!root) return null;
+
+  function prop(name, multiple = false) {
+    const sel = `[itemprop="${name}"]`;
+    if (multiple) {
+      return Array.from(root.querySelectorAll(sel)).map(el =>
+        el.getAttribute("content") || el.textContent.trim()
+      ).filter(Boolean);
+    }
+    const el = root.querySelector(sel);
+    if (!el) return null;
+    return el.getAttribute("content") || el.getAttribute("datetime") || el.textContent.trim() || null;
+  }
+
+  const title = prop("name") || doc.querySelector('meta[property="og:title"]')?.content || "Ukjent oppskrift";
+
+  // Image — prefer content/src attr, then og:image
+  const imgEl = root.querySelector('[itemprop="image"]');
+  const image = imgEl?.getAttribute("src") || imgEl?.getAttribute("content")
+    || doc.querySelector('meta[property="og:image"]')?.content || null;
+
+  const time = parseDuration(prop("totalTime") || prop("cookTime")) || "?";
+  const servings = (prop("recipeYield") || "4").replace(/[^\d]/g, "") || "4";
+
+  const rawIngs = prop("recipeIngredient", true);
+  const ingredients = rawIngs.length
+    ? rawIngs.map(parseIngredient).filter(Boolean)
+    : [];
+
+  // Instructions — can be one big block or multiple HowToStep items
+  const stepEls = root.querySelectorAll('[itemprop="recipeInstructions"]');
+  let steps = [];
+  if (stepEls.length > 1) {
+    steps = Array.from(stepEls).map(el => el.textContent.trim()).filter(Boolean);
+  } else if (stepEls.length === 1) {
+    // Single block — try splitting on <li> or numbered lines
+    const liItems = Array.from(stepEls[0].querySelectorAll("li"));
+    if (liItems.length) {
+      steps = liItems.map(li => li.textContent.trim()).filter(Boolean);
+    } else {
+      steps = stepEls[0].textContent.trim().split(/\n+/).map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  const tags = prop("recipeCategory", true)
+    .concat(prop("recipeCuisine", true))
+    .concat((prop("keywords") || "").split(/[,،]/).map(k => k.trim()).filter(Boolean))
+    .filter(Boolean).slice(0, 5);
+
+  if (!ingredients.length && !steps.length) return null;
+
+  return { title, image, time, servings, tags, ingredients, steps };
 }
 
 function parseSchemaRecipe(r, url, doc) {
