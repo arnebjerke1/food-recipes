@@ -1,0 +1,8 @@
+{
+  "appId": "no.forkful.app",
+  "appName": "Forkful",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

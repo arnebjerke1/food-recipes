@@ -5,6 +5,7 @@ node_modules/
 # Build output
 frontend/dist/
 frontend/dist-ssr/
+forkful-v2/dist/
 
 # Database files
 data/
