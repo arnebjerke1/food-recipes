@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Forkful</string>
+    <string name="title_activity_main">Forkful</string>
+    <string name="package_name">no.forkful.app</string>
+    <string name="custom_url_scheme">no.forkful.app</string>
+</resources>
