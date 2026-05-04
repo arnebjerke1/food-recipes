@@ -87,7 +87,15 @@ function extractRecipe($, url) {
     try {
       const raw = $(jsonLdScripts[i]).html();
       const data = JSON.parse(raw);
-      const schemaData = Array.isArray(data) ? data.find(d => d['@type'] === 'Recipe') : data;
+
+      let schemaData;
+      if (Array.isArray(data)) {
+        schemaData = data.find(d => d['@type'] === 'Recipe');
+      } else if (data['@graph'] && Array.isArray(data['@graph'])) {
+        schemaData = data['@graph'].find(d => d['@type'] === 'Recipe');
+      } else {
+        schemaData = data;
+      }
 
       if (schemaData && schemaData['@type'] === 'Recipe') {
         recipe.title = schemaData.name || '';
