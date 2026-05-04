@@ -6,50 +6,91 @@ const STORAGE_KEY = "forkful-v2-recipes";
 // Fetches a page via CORS proxy, finds JSON-LD Recipe data, returns structured recipe.
 // No API keys needed — this is free, public, standards-based data.
 
-const PROXY = "https://api.allorigins.win/get?url=";
+const PROXIES = [
+  {
+    url: (target) => `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`,
+    rawText: false,
+  },
+  {
+    url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+    rawText: true,
+  },
+];
+
+class RecipeNotFoundError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RecipeNotFoundError";
+  }
+}
+
+function isNetworkError(err) {
+  const msg = (err.message || "").toLowerCase();
+  return (
+    msg === "failed to fetch" ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed")
+  );
+}
 
 async function fetchRecipeFromPage(url) {
-  const res = await fetch(PROXY + encodeURIComponent(url));
-  if (!res.ok) throw new Error(`Kunne ikke hente siden (${res.status})`);
-  const json = await res.json();
-  const html = json.contents;
-  if (!html) throw new Error("Tom respons fra siden");
+  let lastError = null;
 
-  // Parse HTML string
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-
-  // Find all JSON-LD scripts
-  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
-  let recipe = null;
-
-  for (const script of scripts) {
+  for (const proxy of PROXIES) {
     try {
-      const data = JSON.parse(script.textContent);
-      // Can be single object or array
-      const candidates = Array.isArray(data) ? data : [data];
-      // Also check @graph
-      for (const item of candidates) {
-        if (item["@graph"]) candidates.push(...item["@graph"]);
-        if (item["@type"] === "Recipe" ||
-            (Array.isArray(item["@type"]) && item["@type"].includes("Recipe"))) {
-          recipe = item;
-          break;
-        }
+      const res = await fetch(proxy.url(url));
+      if (!res.ok) {
+        lastError = new Error(`Kunne ikke hente siden (${res.status})`);
+        continue;
       }
-      if (recipe) break;
-    } catch {}
+      const html = proxy.rawText ? await res.text() : (await res.json()).contents;
+      if (!html) {
+        lastError = new Error("Tom respons fra siden");
+        continue;
+      }
+
+      // Parse HTML string
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+
+      // Find all JSON-LD scripts
+      const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+      let recipe = null;
+
+      for (const script of scripts) {
+        try {
+          const data = JSON.parse(script.textContent);
+          // Can be single object or array
+          const candidates = Array.isArray(data) ? data : [data];
+          // Also check @graph
+          for (const item of candidates) {
+            if (item["@graph"]) candidates.push(...item["@graph"]);
+            if (item["@type"] === "Recipe" ||
+                (Array.isArray(item["@type"]) && item["@type"].includes("Recipe"))) {
+              recipe = item;
+              break;
+            }
+          }
+          if (recipe) break;
+        } catch {}
+      }
+
+      if (recipe) return parseSchemaRecipe(recipe, url, doc);
+
+      // Fallback: try schema.org microdata (itemscope/itemprop) — used by older WordPress recipe plugins
+      const microdataRecipe = parseMicrodataRecipe(doc, url);
+      if (microdataRecipe) return microdataRecipe;
+
+      throw new RecipeNotFoundError(`Ingen oppskriftsdata funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
+    } catch (err) {
+      // RecipeNotFoundError means the page was fetched OK but no recipe data found — no point retrying
+      if (err instanceof RecipeNotFoundError) throw err;
+      lastError = err;
+    }
   }
 
-  if (!recipe) {
-    // Fallback: try og:title + og:image + scrape basic info
-    const title = doc.querySelector('meta[property="og:title"]')?.content ||
-                  doc.querySelector("title")?.textContent || "Ukjent oppskrift";
-    const image = doc.querySelector('meta[property="og:image"]')?.content || null;
-    throw new Error(`Ingen oppskriftsdata (JSON-LD) funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
-  }
-
-  return parseSchemaRecipe(recipe, url, doc);
+  throw lastError || new Error("Kunne ikke hente oppskriften. Sjekk internettforbindelsen din og prøv igjen.");
 }
 
 // Parse ISO 8601 duration like PT1H30M → "1 t 30 min"
@@ -78,6 +119,17 @@ function parseIngredient(str) {
   return { amount: "", unit: "", name: str };
 }
 
+// Strip HTML tags from a string and trim leading list numbering (e.g. "3. ", "Step 2:")
+function cleanStepText(str) {
+  if (!str) return "";
+  // Use a temporary element to strip HTML tags safely
+  const tmp = document.createElement("div");
+  tmp.innerHTML = str;
+  const text = (tmp.textContent || tmp.innerText || "").trim();
+  // Remove leading ordinal prefixes like "1.", "2)", "Step 3:", "Steg 4."
+  return text.replace(/^\s*(?:step|steg)\s*\d+[.:)]\s*/i, "").replace(/^\s*\d+[.)]\s*/, "").trim();
+}
+
 // Parse instruction — can be string, HowToStep, or array
 function parseSteps(instructions) {
   if (!instructions) return [];
@@ -85,20 +137,79 @@ function parseSteps(instructions) {
   const steps = [];
   for (const item of raw) {
     if (typeof item === "string") {
-      steps.push(item.trim());
+      steps.push(cleanStepText(item));
     } else if (item["@type"] === "HowToStep") {
-      steps.push((item.text || item.name || "").trim());
+      steps.push(cleanStepText(item.text || item.name || ""));
     } else if (item["@type"] === "HowToSection") {
       // Section contains steps
       const sub = Array.isArray(item.itemListElement) ? item.itemListElement : [];
       for (const s of sub) {
-        steps.push((s.text || s.name || "").trim());
+        steps.push(cleanStepText(s.text || s.name || ""));
       }
     } else if (item.text) {
-      steps.push(item.text.trim());
+      steps.push(cleanStepText(item.text));
     }
   }
   return steps.filter(Boolean);
+}
+
+// ── Schema.org microdata extractor ────────────────────────────────────────────
+// Handles pages that use itemscope/itemprop instead of JSON-LD (e.g. EasyRecipe, old WP plugins).
+function parseMicrodataRecipe(doc, url) {
+  // Look for an element with itemtype containing "schema.org/Recipe"
+  const root = doc.querySelector('[itemtype*="schema.org/Recipe"]');
+  if (!root) return null;
+
+  function prop(name, multiple = false) {
+    const sel = `[itemprop="${name}"]`;
+    if (multiple) {
+      return Array.from(root.querySelectorAll(sel)).map(el =>
+        el.getAttribute("content") || el.textContent.trim()
+      ).filter(Boolean);
+    }
+    const el = root.querySelector(sel);
+    if (!el) return null;
+    return el.getAttribute("content") || el.getAttribute("datetime") || el.textContent.trim() || null;
+  }
+
+  const title = prop("name") || doc.querySelector('meta[property="og:title"]')?.content || "Ukjent oppskrift";
+
+  // Image — prefer content/src attr, then og:image
+  const imgEl = root.querySelector('[itemprop="image"]');
+  const image = imgEl?.getAttribute("src") || imgEl?.getAttribute("content")
+    || doc.querySelector('meta[property="og:image"]')?.content || null;
+
+  const time = parseDuration(prop("totalTime") || prop("cookTime")) || "?";
+  const servings = (prop("recipeYield") || "4").replace(/[^\d]/g, "") || "4";
+
+  const rawIngs = prop("recipeIngredient", true);
+  const ingredients = rawIngs.length
+    ? rawIngs.map(parseIngredient).filter(Boolean)
+    : [];
+
+  // Instructions — can be one big block or multiple HowToStep items
+  const stepEls = root.querySelectorAll('[itemprop="recipeInstructions"]');
+  let steps = [];
+  if (stepEls.length > 1) {
+    steps = Array.from(stepEls).map(el => cleanStepText(el.textContent)).filter(Boolean);
+  } else if (stepEls.length === 1) {
+    // Single block — try splitting on <li> or numbered lines
+    const liItems = Array.from(stepEls[0].querySelectorAll("li"));
+    if (liItems.length) {
+      steps = liItems.map(li => cleanStepText(li.textContent)).filter(Boolean);
+    } else {
+      steps = cleanStepText(stepEls[0].textContent).split(/\n+/).map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  const tags = prop("recipeCategory", true)
+    .concat(prop("recipeCuisine", true))
+    .concat((prop("keywords") || "").split(/[,،]/).map(k => k.trim()).filter(Boolean))
+    .filter(Boolean).slice(0, 5);
+
+  if (!ingredients.length && !steps.length) return null;
+
+  return { title, image, time, servings, tags, ingredients, steps };
 }
 
 function parseSchemaRecipe(r, url, doc) {
@@ -554,7 +665,9 @@ export default function App() {
       const data = await fetchRecipe(u, setStatus);
       addRecipe(data, u);
     } catch (e) {
-      setError(e.message || "Ukjent feil");
+      setError(isNetworkError(e)
+        ? "Kunne ikke koble til for å hente oppskriften. Sjekk internettforbindelsen din og prøv igjen."
+        : e.message || "Ukjent feil");
     } finally { setLoading(false); setStatus(""); }
   }
 
