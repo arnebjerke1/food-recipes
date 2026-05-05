@@ -272,11 +272,16 @@ async function fetchYoutubeRecipe(url) {
 }
 
 // ── Caption parser: find Ingredients / Steps sections in video captions ───────
+
+function stripBullet(line) {
+  return line.replace(/^[-•*✓]\s*/, "").trim();
+}
+
 function parseCaptionForRecipe(caption) {
   if (!caption) return { ingredients: [], steps: [] };
   const lines = caption.split(/\n/).map(l => l.trim()).filter(Boolean);
 
-  const ingredientHeader = /^(ingredients?|ingredienser?|what you'?ll? need|du trenger)\s*:?$/i;
+  const ingredientHeader = /^(ingredients?|ingredienser?|what you'?ll need|du trenger)\s*:?$/i;
   const stepsHeader      = /^(steps?|instructions?|method|how to make|fremgangsmåte|slik gjør du det|directions?)\s*:?$/i;
 
   let mode = null;
@@ -288,10 +293,10 @@ function parseCaptionForRecipe(caption) {
     if (stepsHeader.test(line))      { mode = "steps";       continue; }
 
     if (mode === "ingredients") {
-      const clean = line.replace(/^[-•*✓]\s*/, "").trim();
+      const clean = stripBullet(line);
       if (clean) ingredients.push(clean);
     } else if (mode === "steps") {
-      const clean = line.replace(/^\d+[.)]\s*/, "").replace(/^[-•*]\s*/, "").trim();
+      const clean = stripBullet(line.replace(/^\d+[.)]\s*/, ""));
       if (clean) steps.push(clean);
     }
   }
@@ -337,15 +342,16 @@ async function fetchTikTokRecipe(url) {
     if (res.ok) data = await res.json();
   } catch {}
 
-  // Fallback: route through CORS proxy
+  // Fallback: iterate all CORS proxies until one succeeds
   if (!data) {
-    try {
-      const res = await fetch(PROXIES[0].url(oembedUrl));
-      if (res.ok) {
-        const json = await res.json();
-        data = JSON.parse(json.contents);
-      }
-    } catch {}
+    for (const proxy of PROXIES) {
+      try {
+        const res = await fetch(proxy.url(oembedUrl));
+        if (!res.ok) continue;
+        const raw = proxy.rawText ? await res.text() : (await res.json()).contents;
+        if (raw) { data = JSON.parse(raw); break; }
+      } catch {}
+    }
   }
 
   if (!data) {

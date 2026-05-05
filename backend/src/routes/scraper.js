@@ -30,22 +30,24 @@ function parseSocialCaption(caption) {
   if (!caption) return { ingredients: [], steps: [] };
   const lines = caption.split(/\n/).map(l => l.trim()).filter(Boolean);
 
-  const ingredientHeader = /^(ingredients?|ingredienser?|what you'?ll? need|du trenger)\s*:?$/i;
+  const ingredientHeader = /^(ingredients?|ingredienser?|what you'?ll need|du trenger)\s*:?$/i;
   const stepsHeader      = /^(steps?|instructions?|method|how to make|fremgangsmåte|slik gjør du det|directions?)\s*:?$/i;
 
   let mode = null;
   const ingredients = [];
   const steps = [];
 
+  const stripBullet = (line) => line.replace(/^[-•*✓]\s*/, '').trim();
+
   for (const line of lines) {
     if (ingredientHeader.test(line)) { mode = 'ingredients'; continue; }
     if (stepsHeader.test(line))      { mode = 'steps';       continue; }
 
     if (mode === 'ingredients') {
-      const clean = line.replace(/^[-•*✓]\s*/, '').trim();
+      const clean = stripBullet(line);
       if (clean) ingredients.push(clean);
     } else if (mode === 'steps') {
-      const clean = line.replace(/^\d+[.)]\s*/, '').replace(/^[-•*]\s*/, '').trim();
+      const clean = stripBullet(line.replace(/^\d+[.)]\s*/, ''));
       if (clean) steps.push(clean);
     }
   }
