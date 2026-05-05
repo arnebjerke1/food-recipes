@@ -82,6 +82,10 @@ async function fetchRecipeFromPage(url) {
       const microdataRecipe = parseMicrodataRecipe(doc, url);
       if (microdataRecipe) return microdataRecipe;
 
+      // Fallback: try known WordPress recipe plugin CSS selectors (WP Recipe Maker, Tasty Recipes, etc.)
+      const cssRecipe = parseCssRecipe(doc, url);
+      if (cssRecipe) return cssRecipe;
+
       throw new RecipeNotFoundError(`Ingen oppskriftsdata funnet på siden.\n\nTips: Prøv matprat.no, allrecipes.com, eller andre store oppskriftssider.`);
     } catch (err) {
       // RecipeNotFoundError means the page was fetched OK but no recipe data found — no point retrying
@@ -210,6 +214,99 @@ function parseMicrodataRecipe(doc, url) {
   if (!ingredients.length && !steps.length) return null;
 
   return { title, image, time, servings, tags, ingredients, steps };
+}
+
+// ── CSS-selector fallback ──────────────────────────────────────────────────────
+// Handles pages that use well-known WordPress recipe plugin CSS classes but no
+// structured data (e.g. WP Recipe Maker, Tasty Recipes, EasyRecipe, WPZOOM).
+function parseCssRecipe(doc, url) {
+  // Each entry: { container selector, ingredient selector, step selector, title selector }
+  const PLUGIN_PATTERNS = [
+    // WP Recipe Maker (most popular modern plugin)
+    {
+      container: ".wprm-recipe-container",
+      title:     ".wprm-recipe-name",
+      image:     ".wprm-recipe-image img",
+      ing:       ".wprm-recipe-ingredient",
+      step:      ".wprm-recipe-instruction-text",
+      time:      ".wprm-recipe-total_time-minutes",
+      servings:  ".wprm-recipe-servings",
+    },
+    // Tasty Recipes
+    {
+      container: ".tasty-recipes",
+      title:     ".tasty-recipes-title",
+      image:     ".tasty-recipes-image img",
+      ing:       ".tasty-recipes-ingredients ul li",
+      step:      ".tasty-recipes-instructions ol li",
+      time:      null,
+      servings:  ".tasty-recipes-yield",
+    },
+    // EasyRecipe (HTML variant without microdata)
+    {
+      container: ".easyrecipe",
+      title:     ".ERSName",
+      image:     ".ERSImage img",
+      ing:       ".ERSIngredients li",
+      step:      ".ERSInstructions li",
+      time:      ".ERSTime",
+      servings:  ".ERSServes",
+    },
+    // WPZOOM Recipe Card Blocks
+    {
+      container: ".wpzoom-recipe-card",
+      title:     ".recipe-card-title",
+      image:     ".recipe-card-image img",
+      ing:       ".recipe-card-ingredients li",
+      step:      ".recipe-card-steps li",
+      time:      null,
+      servings:  ".recipe-card-servings",
+    },
+    // Generic recipe card (many themes)
+    {
+      container: ".recipe-card",
+      title:     ".recipe-title, .recipe-card-title, h2.recipe-name",
+      image:     ".recipe-card img, .recipe-image img",
+      ing:       ".recipe-ingredients li, .ingredients-list li",
+      step:      ".recipe-instructions li, .instructions-list li",
+      time:      null,
+      servings:  ".recipe-servings, .recipe-yield",
+    },
+  ];
+
+  for (const pattern of PLUGIN_PATTERNS) {
+    const root = doc.querySelector(pattern.container);
+    if (!root) continue;
+
+    const rawTitle = pattern.title ? root.querySelector(pattern.title)?.textContent?.trim() : null;
+    const title = rawTitle
+      || doc.querySelector('meta[property="og:title"]')?.content
+      || doc.querySelector("h1")?.textContent?.trim()
+      || "Ukjent oppskrift";
+
+    const imgEl = pattern.image ? root.querySelector(pattern.image) : null;
+    const image = imgEl?.getAttribute("src") || imgEl?.getAttribute("data-src")
+      || doc.querySelector('meta[property="og:image"]')?.content || null;
+
+    const rawIngs = pattern.ing
+      ? Array.from(root.querySelectorAll(pattern.ing)).map(el => el.textContent.trim()).filter(Boolean)
+      : [];
+    const ingredients = rawIngs.map(parseIngredient).filter(Boolean);
+
+    const steps = pattern.step
+      ? Array.from(root.querySelectorAll(pattern.step)).map(el => cleanStepText(el.textContent)).filter(Boolean)
+      : [];
+
+    if (!ingredients.length && !steps.length) continue;
+
+    const timeText = pattern.time ? root.querySelector(pattern.time)?.textContent?.trim() : null;
+    const servingsText = pattern.servings ? root.querySelector(pattern.servings)?.textContent?.trim() : null;
+    const servings = servingsText ? (servingsText.replace(/[^\d]/g, "") || "4") : "4";
+
+    return { title, image, time: timeText || "?", servings, tags: [], ingredients, steps };
+  }
+
+  return null;
 }
 
 function parseSchemaRecipe(r, url, doc) {
