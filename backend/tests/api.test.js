@@ -203,6 +203,7 @@ describe('Social recipe helpers', () => {
     it('detects TikTok URLs', () => {
       expect(detectSocialPlatform('https://www.tiktok.com/@user/video/123')).toBe('tiktok');
       expect(detectSocialPlatform('https://tiktok.com/@user/video/456')).toBe('tiktok');
+      expect(detectSocialPlatform('https://vm.tiktok.com/short/')).toBe('tiktok');
     });
 
     it('detects Instagram URLs', () => {
@@ -222,6 +223,12 @@ describe('Social recipe helpers', () => {
 
     it('returns null for invalid URLs', () => {
       expect(detectSocialPlatform('not-a-url')).toBeNull();
+    });
+
+    it('rejects spoofed hostnames that contain platform names as substrings', () => {
+      expect(detectSocialPlatform('https://evil-tiktok.com/video/123')).toBeNull();
+      expect(detectSocialPlatform('https://fake-instagram.com/p/ABC/')).toBeNull();
+      expect(detectSocialPlatform('https://notfacebook.com/video')).toBeNull();
     });
   });
 

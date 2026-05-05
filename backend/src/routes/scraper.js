@@ -9,13 +9,14 @@ const router = express.Router();
 
 /**
  * Returns 'tiktok' | 'instagram' | 'facebook' | null
+ * Uses exact hostname matching to prevent substring spoofing (e.g. evil-tiktok.com).
  */
 function detectSocialPlatform(url) {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, '');
-    if (hostname.includes('tiktok.com')) return 'tiktok';
-    if (hostname.includes('instagram.com')) return 'instagram';
-    if (hostname.includes('facebook.com') || hostname === 'fb.watch') return 'facebook';
+    if (hostname === 'tiktok.com' || hostname.endsWith('.tiktok.com')) return 'tiktok';
+    if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) return 'instagram';
+    if (hostname === 'facebook.com' || hostname.endsWith('.facebook.com') || hostname === 'fb.watch') return 'facebook';
   } catch {}
   return null;
 }
@@ -29,7 +30,7 @@ function parseSocialCaption(caption) {
   if (!caption) return { ingredients: [], steps: [] };
   const lines = caption.split(/\n/).map(l => l.trim()).filter(Boolean);
 
-  const ingredientHeader = /^(ingredients?|ingredienser?|what you.?ll? need|du trenger)\s*:?$/i;
+  const ingredientHeader = /^(ingredients?|ingredienser?|what you'?ll? need|du trenger)\s*:?$/i;
   const stepsHeader      = /^(steps?|instructions?|method|how to make|fremgangsmåte|slik gjør du det|directions?)\s*:?$/i;
 
   let mode = null;
@@ -55,6 +56,9 @@ function parseSocialCaption(caption) {
 /**
  * Fetch recipe data from a social-video URL.
  * Returns a partial recipe object; the user fills in the rest manually.
+ * NOTE: the caller (route handler) has already validated the URL with isPrivateUrl()
+ * and protocol checks. This function adds a second guard for the Instagram/Facebook
+ * branches that issue a request to the user-supplied URL.
  */
 async function extractSocialRecipe(url, platform) {
   const recipe = {
@@ -72,6 +76,7 @@ async function extractSocialRecipe(url, platform) {
   };
 
   if (platform === 'tiktok') {
+    // TikTok oEmbed is a fixed, well-known endpoint — not affected by the user URL
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
     const { data } = await axios.get(oembedUrl, { timeout: 10000 });
     recipe.title       = data.title || 'TikTok-oppskrift';
@@ -81,29 +86,19 @@ async function extractSocialRecipe(url, platform) {
     recipe.ingredients = parsed.ingredients;
     recipe.steps       = parsed.steps;
 
-  } else if (platform === 'instagram') {
-    // Instagram's public oEmbed now requires a token; fall back to og: meta tags
-    const response = await axios.get(url, {
-      timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FoodRecipesBot/1.0)' },
-    });
-    const $ = cheerio.load(response.data);
-    const caption = $('meta[property="og:description"]').attr('content') || '';
-    recipe.title       = $('meta[property="og:title"]').attr('content') || 'Instagram-oppskrift';
-    recipe.description = caption;
-    recipe.image_url   = $('meta[property="og:image"]').attr('content') || '';
-    const parsed = parseSocialCaption(caption);
-    recipe.ingredients = parsed.ingredients;
-    recipe.steps       = parsed.steps;
+  } else if (platform === 'instagram' || platform === 'facebook') {
+    // Defensive SSRF guard: URL must already have passed isPrivateUrl() in the route
+    // handler, but we re-check here so extractSocialRecipe is safe to call stand-alone.
+    if (isPrivateUrl(url)) throw new Error('URL points to a private or restricted address');
 
-  } else if (platform === 'facebook') {
+    const defaultTitle = platform === 'instagram' ? 'Instagram-oppskrift' : 'Facebook-oppskrift';
     const response = await axios.get(url, {
       timeout: 10000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FoodRecipesBot/1.0)' },
     });
     const $ = cheerio.load(response.data);
     const caption = $('meta[property="og:description"]').attr('content') || '';
-    recipe.title       = $('meta[property="og:title"]').attr('content') || 'Facebook-video';
+    recipe.title       = $('meta[property="og:title"]').attr('content') || defaultTitle;
     recipe.description = caption;
     recipe.image_url   = $('meta[property="og:image"]').attr('content') || '';
     const parsed = parseSocialCaption(caption);
