@@ -101,7 +101,10 @@ public class RecipeFetcher {
                     JsonElement el = JsonParser.parseString(text);
                     Result result = extractFromJsonLd(el, url);
                     if (result != null) return result;
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                    // Each script tag is parsed independently; malformed JSON-LD is skipped
+                    // so we can still find a valid Recipe block in another script tag.
+                }
             }
             throw new IOException("Fant ingen oppskrift på denne siden. Prøv manuell innlegging.");
         }
