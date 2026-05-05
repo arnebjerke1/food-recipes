@@ -74,15 +74,11 @@ public class RecipeFetcher {
     }
 
     private static Result fetchVideoOnly(String url) throws IOException {
-        Result result = new Result();
-        result.title = "Video-oppskrift";
-        result.isVideoOnly = true;
-        result.sourceUrl = url;
-        if (url.contains("tiktok.com")) result.source = "TikTok";
-        else if (url.contains("instagram.com")) result.source = "Instagram";
-        else result.source = "Facebook";
-        result.steps.add("Kun tittel og bilde er tilgjengelig. Legg til trinn manuelt.");
-        throw new IOException("Kun tittel/bilde er tilgjengelig fra " + result.source + ". Bruk manuell innlegging for å legge til ingredienser og trinn.");
+        String source;
+        if (url.contains("tiktok.com")) source = "TikTok";
+        else if (url.contains("instagram.com")) source = "Instagram";
+        else source = "Facebook";
+        throw new IOException("Kun tittel/bilde er tilgjengelig fra " + source + ". Bruk manuell innlegging for å legge til ingredienser og trinn.");
     }
 
     private static Result fetchRecipeSite(String url) throws IOException {

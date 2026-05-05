@@ -113,13 +113,19 @@ public class RecipeAdapter extends RecyclerView.Adapter<RecipeAdapter.ViewHolder
                 Color.parseColor(PLACEHOLDER_COLORS[pos % PLACEHOLDER_COLORS.length]));
     }
 
+    private static final SimpleDateFormat DATE_FMT;
+    static {
+        DATE_FMT = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault());
+        DATE_FMT.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+    }
+    private static final SimpleDateFormat DISPLAY_FMT =
+            new SimpleDateFormat("dd.MM.yyyy", Locale.getDefault());
+
     private String formatDate(String isoDate) {
         if (isoDate == null || isoDate.isEmpty()) return "";
         try {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault());
-            sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
-            Date d = sdf.parse(isoDate);
-            return new SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(d);
+            Date d = DATE_FMT.parse(isoDate);
+            return DISPLAY_FMT.format(d);
         } catch (ParseException e) {
             return "";
         }
