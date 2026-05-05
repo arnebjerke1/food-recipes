@@ -1,7 +1,25 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Forkful</string>
-    <string name="title_activity_main">Forkful</string>
-    <string name="package_name">no.forkful.app</string>
-    <string name="custom_url_scheme">no.forkful.app</string>
+    <string name="add_recipe">Legg til oppskrift</string>
+    <string name="no_recipes_title">Ingen oppskrifter enda</string>
+    <string name="no_recipes_subtitle">Legg til din første oppskrift!</string>
+    <string name="delete_recipe">Slett oppskrift</string>
+    <string name="delete_confirm_title">Slett oppskrift?</string>
+    <string name="delete_confirm_message">Er du sikker på at du vil slette denne oppskriften?</string>
+    <string name="cancel">Avbryt</string>
+    <string name="delete">Slett</string>
+    <string name="save">Lagre</string>
+    <string name="ingredients">Ingredienser</string>
+    <string name="steps">Fremgangsmåte</string>
+    <string name="tab_url">🔗 Fra lenke</string>
+    <string name="tab_manual">✏️ Manuelt</string>
+    <string name="url_hint">Lim inn URL til oppskrift</string>
+    <string name="fetch_button">Hent →</string>
+    <string name="title_hint">Tittel *</string>
+    <string name="time_hint">Tid (f.eks. 30 min)</string>
+    <string name="servings_hint">Porsjoner (f.eks. 4)</string>
+    <string name="tags_hint">Tags (kommaseparert)</string>
+    <string name="ingredients_hint">Ingredienser (én per linje)</string>
+    <string name="steps_hint">Fremgangsmåte (ett trinn per linje)</string>
 </resources>

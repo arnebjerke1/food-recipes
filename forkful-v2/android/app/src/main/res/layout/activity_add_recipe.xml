@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/colorBackground">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:theme="@style/ThemeOverlay.MaterialComponents.Dark.ActionBar">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/add_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/colorPrimary"
+            app:titleTextColor="@android:color/white" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Tab bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/tab_url"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/tab_url"
+            android:textSize="13sp"
+            android:background="@color/colorAccent"
+            android:textColor="@android:color/white" />
+
+        <Button
+            android:id="@+id/tab_manual"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/tab_manual"
+            android:textSize="13sp"
+            android:background="@color/colorBorder"
+            android:textColor="@color/colorTextPrimary" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- URL tab content -->
+            <LinearLayout
+                android:id="@+id/url_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="visible">
+
+                <EditText
+                    android:id="@+id/url_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/url_hint"
+                    android:inputType="textUri"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <Button
+                    android:id="@+id/btn_fetch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/fetch_button"
+                    android:backgroundTint="@color/colorAccent"
+                    android:textColor="@android:color/white"
+                    android:layout_marginBottom="12dp" />
+
+                <TextView
+                    android:id="@+id/status_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Manual tab content -->
+            <LinearLayout
+                android:id="@+id/manual_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/manual_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/title_hint"
+                    android:inputType="textCapSentences"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <EditText
+                    android:id="@+id/manual_time"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/time_hint"
+                    android:inputType="text"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <EditText
+                    android:id="@+id/manual_servings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/servings_hint"
+                    android:inputType="text"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <EditText
+                    android:id="@+id/manual_tags"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/tags_hint"
+                    android:inputType="text"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <EditText
+                    android:id="@+id/manual_ingredients"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/ingredients_hint"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:minLines="4"
+                    android:gravity="top"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+                <EditText
+                    android:id="@+id/manual_steps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/steps_hint"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:minLines="5"
+                    android:gravity="top"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/colorSand"
+                    android:padding="12dp"
+                    android:textColor="@color/colorTextPrimary" />
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/save"
+                app:backgroundTint="@color/colorPrimary"
+                android:textColor="@android:color/white"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>
