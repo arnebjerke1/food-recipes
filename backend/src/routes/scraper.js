@@ -5,6 +5,115 @@ const { requireAuth } = require('./auth');
 
 const router = express.Router();
 
+// ── Social-platform helpers ───────────────────────────────────────────────────
+
+/**
+ * Returns 'tiktok' | 'instagram' | 'facebook' | null
+ */
+function detectSocialPlatform(url) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    if (hostname.includes('tiktok.com')) return 'tiktok';
+    if (hostname.includes('instagram.com')) return 'instagram';
+    if (hostname.includes('facebook.com') || hostname === 'fb.watch') return 'facebook';
+  } catch {}
+  return null;
+}
+
+/**
+ * Very lightweight caption parser.
+ * Looks for "Ingredients:" / "Steps:" headings and collects lines underneath.
+ * Returns { ingredients: string[], steps: string[] }
+ */
+function parseSocialCaption(caption) {
+  if (!caption) return { ingredients: [], steps: [] };
+  const lines = caption.split(/\n/).map(l => l.trim()).filter(Boolean);
+
+  const ingredientHeader = /^(ingredients?|ingredienser?|what you.?ll? need|du trenger)\s*:?$/i;
+  const stepsHeader      = /^(steps?|instructions?|method|how to make|fremgangsmåte|slik gjør du det|directions?)\s*:?$/i;
+
+  let mode = null;
+  const ingredients = [];
+  const steps = [];
+
+  for (const line of lines) {
+    if (ingredientHeader.test(line)) { mode = 'ingredients'; continue; }
+    if (stepsHeader.test(line))      { mode = 'steps';       continue; }
+
+    if (mode === 'ingredients') {
+      const clean = line.replace(/^[-•*✓]\s*/, '').trim();
+      if (clean) ingredients.push(clean);
+    } else if (mode === 'steps') {
+      const clean = line.replace(/^\d+[.)]\s*/, '').replace(/^[-•*]\s*/, '').trim();
+      if (clean) steps.push(clean);
+    }
+  }
+
+  return { ingredients, steps };
+}
+
+/**
+ * Fetch recipe data from a social-video URL.
+ * Returns a partial recipe object; the user fills in the rest manually.
+ */
+async function extractSocialRecipe(url, platform) {
+  const recipe = {
+    title: '',
+    description: '',
+    ingredients: [],
+    steps: [],
+    image_url: '',
+    source_url: url,
+    servings: 4,
+    prep_time: 0,
+    cook_time: 0,
+    tags: [platform, 'video'],
+    isVideoOnly: true,
+  };
+
+  if (platform === 'tiktok') {
+    const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    const { data } = await axios.get(oembedUrl, { timeout: 10000 });
+    recipe.title       = data.title || 'TikTok-oppskrift';
+    recipe.description = data.title || '';
+    recipe.image_url   = data.thumbnail_url || '';
+    const parsed = parseSocialCaption(data.title || '');
+    recipe.ingredients = parsed.ingredients;
+    recipe.steps       = parsed.steps;
+
+  } else if (platform === 'instagram') {
+    // Instagram's public oEmbed now requires a token; fall back to og: meta tags
+    const response = await axios.get(url, {
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FoodRecipesBot/1.0)' },
+    });
+    const $ = cheerio.load(response.data);
+    const caption = $('meta[property="og:description"]').attr('content') || '';
+    recipe.title       = $('meta[property="og:title"]').attr('content') || 'Instagram-oppskrift';
+    recipe.description = caption;
+    recipe.image_url   = $('meta[property="og:image"]').attr('content') || '';
+    const parsed = parseSocialCaption(caption);
+    recipe.ingredients = parsed.ingredients;
+    recipe.steps       = parsed.steps;
+
+  } else if (platform === 'facebook') {
+    const response = await axios.get(url, {
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FoodRecipesBot/1.0)' },
+    });
+    const $ = cheerio.load(response.data);
+    const caption = $('meta[property="og:description"]').attr('content') || '';
+    recipe.title       = $('meta[property="og:title"]').attr('content') || 'Facebook-video';
+    recipe.description = caption;
+    recipe.image_url   = $('meta[property="og:image"]').attr('content') || '';
+    const parsed = parseSocialCaption(caption);
+    recipe.ingredients = parsed.ingredients;
+    recipe.steps       = parsed.steps;
+  }
+
+  return recipe;
+}
+
 // Block requests to private / loopback IP ranges to prevent SSRF
 function isPrivateUrl(urlStr) {
   let hostname;
@@ -48,6 +157,27 @@ router.post('/parse-url', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'URL points to a private or restricted address' });
   }
 
+  // ── Social-video platforms (TikTok, Instagram, Facebook) ──────────────────
+  const platform = detectSocialPlatform(url);
+  if (platform) {
+    try {
+      const recipe = await extractSocialRecipe(url, platform);
+      return res.json(recipe);
+    } catch (err) {
+      if (err.code === 'ECONNABORTED') {
+        return res.status(408).json({ error: 'Request timed out. The site may be unavailable.' });
+      }
+      const msg =
+        platform === 'tiktok'
+          ? 'Kunne ikke hente TikTok-info. Kontroller at videoen er offentlig.'
+          : platform === 'instagram'
+          ? 'Kunne ikke hente Instagram-info. Kontroller at profilen er offentlig.'
+          : 'Kunne ikke hente Facebook-info. Kontroller at innholdet er offentlig.';
+      return res.status(502).json({ error: msg });
+    }
+  }
+
+  // ── Regular website ────────────────────────────────────────────────────────
   try {
     const response = await axios.get(url, {
       timeout: 10000,
@@ -194,3 +324,5 @@ function parseServings(val) {
 }
 
 module.exports = router;
+module.exports.detectSocialPlatform = detectSocialPlatform;
+module.exports.parseSocialCaption   = parseSocialCaption;

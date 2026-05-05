@@ -269,18 +269,177 @@ async function fetchYoutubeRecipe(url) {
   };
 }
 
+// ── Caption parser: find Ingredients / Steps sections in video captions ───────
+function parseCaptionForRecipe(caption) {
+  if (!caption) return { ingredients: [], steps: [] };
+  const lines = caption.split(/\n/).map(l => l.trim()).filter(Boolean);
+
+  const ingredientHeader = /^(ingredients?|ingredienser?|what you.?ll? need|du trenger)\s*:?$/i;
+  const stepsHeader      = /^(steps?|instructions?|method|how to make|fremgangsmåte|slik gjør du det|directions?)\s*:?$/i;
+
+  let mode = null;
+  const ingredients = [];
+  const steps = [];
+
+  for (const line of lines) {
+    if (ingredientHeader.test(line)) { mode = "ingredients"; continue; }
+    if (stepsHeader.test(line))      { mode = "steps";       continue; }
+
+    if (mode === "ingredients") {
+      const clean = line.replace(/^[-•*✓]\s*/, "").trim();
+      if (clean) ingredients.push(clean);
+    } else if (mode === "steps") {
+      const clean = line.replace(/^\d+[.)]\s*/, "").replace(/^[-•*]\s*/, "").trim();
+      if (clean) steps.push(clean);
+    }
+  }
+
+  return { ingredients, steps };
+}
+
+// ── TikTok: title + thumbnail via oEmbed (public, no auth needed) ─────────────
+async function fetchTikTokRecipe(url) {
+  const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+  let data = null;
+
+  // Try direct fetch first (TikTok oEmbed supports CORS)
+  try {
+    const res = await fetch(oembedUrl);
+    if (res.ok) data = await res.json();
+  } catch {}
+
+  // Fallback: route through CORS proxy
+  if (!data) {
+    try {
+      const res = await fetch(PROXIES[0].url(oembedUrl));
+      if (res.ok) {
+        const json = await res.json();
+        data = JSON.parse(json.contents);
+      }
+    } catch {}
+  }
+
+  if (!data) {
+    throw new Error(
+      "Kunne ikke hente TikTok-info.\n\nKontroller at videoen er offentlig, eller legg til oppskriften manuelt."
+    );
+  }
+
+  const caption = data.title || "";
+  const { ingredients, steps } = parseCaptionForRecipe(caption);
+
+  return {
+    title: caption || "TikTok-oppskrift",
+    image: data.thumbnail_url || null,
+    time: "?",
+    servings: "4",
+    tags: ["video", "tiktok"],
+    ingredients: ingredients.map(parseIngredient).filter(Boolean),
+    steps: steps.length > 0 ? steps : ["Se videoen for fremgangsmåten. Legg til ingredienser og steg manuelt."],
+    isVideoOnly: true,
+  };
+}
+
+// ── Instagram: og: meta tags via CORS proxy (open profiles only) ──────────────
+async function fetchInstagramRecipe(url) {
+  let title   = "Instagram-oppskrift";
+  let image   = null;
+  let caption = "";
+
+  for (const proxy of PROXIES) {
+    try {
+      const res = await fetch(proxy.url(url));
+      if (!res.ok) continue;
+      const html = proxy.rawText ? await res.text() : (await res.json()).contents;
+      if (!html) continue;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const ogTitle = doc.querySelector('meta[property="og:title"]')?.content;
+      const ogImage = doc.querySelector('meta[property="og:image"]')?.content;
+      const ogDesc  = doc.querySelector('meta[property="og:description"]')?.content;
+      if (ogTitle) title   = ogTitle;
+      if (ogImage) image   = ogImage;
+      if (ogDesc)  caption = ogDesc;
+      break;
+    } catch {}
+  }
+
+  const { ingredients, steps } = parseCaptionForRecipe(caption);
+
+  return {
+    title,
+    image,
+    time: "?",
+    servings: "4",
+    tags: ["video", "instagram"],
+    ingredients: ingredients.map(parseIngredient).filter(Boolean),
+    steps: steps.length > 0 ? steps : ["Se videoen for fremgangsmåten. Legg til ingredienser og steg manuelt."],
+    isVideoOnly: true,
+  };
+}
+
+// ── Facebook: og: meta tags via CORS proxy (open profiles only) ───────────────
+async function fetchFacebookRecipe(url) {
+  let title   = "Facebook-video";
+  let image   = null;
+  let caption = "";
+
+  for (const proxy of PROXIES) {
+    try {
+      const res = await fetch(proxy.url(url));
+      if (!res.ok) continue;
+      const html = proxy.rawText ? await res.text() : (await res.json()).contents;
+      if (!html) continue;
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const ogTitle = doc.querySelector('meta[property="og:title"]')?.content;
+      const ogImage = doc.querySelector('meta[property="og:image"]')?.content;
+      const ogDesc  = doc.querySelector('meta[property="og:description"]')?.content;
+      if (ogTitle) title   = ogTitle;
+      if (ogImage) image   = ogImage;
+      if (ogDesc)  caption = ogDesc;
+      break;
+    } catch {}
+  }
+
+  const { ingredients, steps } = parseCaptionForRecipe(caption);
+
+  return {
+    title,
+    image,
+    time: "?",
+    servings: "4",
+    tags: ["video", "facebook"],
+    ingredients: ingredients.map(parseIngredient).filter(Boolean),
+    steps: steps.length > 0 ? steps : ["Se videoen for fremgangsmåten. Legg til ingredienser og steg manuelt."],
+    isVideoOnly: true,
+  };
+}
+
 async function fetchRecipe(url, onStatus) {
   const isYt = url.includes("youtube.com") || url.includes("youtu.be");
   const isIg = url.includes("instagram.com");
   const isTt = url.includes("tiktok.com");
+  const isFb = url.includes("facebook.com") || url.includes("fb.watch");
 
   if (isYt) {
     onStatus("▶️ Henter YouTube-info…");
     return await fetchYoutubeRecipe(url);
   }
 
-  if (isIg || isTt) {
-    throw new Error("Instagram og TikTok støtter ikke automatisk henting uten API-nøkkel.\n\nBruk 'Legg til manuelt' for å skrive inn oppskriften selv.");
+  if (isTt) {
+    onStatus("🎵 Henter TikTok-info…");
+    return await fetchTikTokRecipe(url);
+  }
+
+  if (isIg) {
+    onStatus("📸 Henter Instagram-info…");
+    return await fetchInstagramRecipe(url);
+  }
+
+  if (isFb) {
+    onStatus("📘 Henter Facebook-info…");
+    return await fetchFacebookRecipe(url);
   }
 
   onStatus("🔍 Henter siden…");
@@ -297,6 +456,7 @@ function detectSource(url) {
     if (h.includes("tiktok"))    return { name: "TikTok",    icon: "🎵" };
     if (h.includes("youtube") || h.includes("youtu.be")) return { name: "YouTube", icon: "▶️" };
     if (h.includes("instagram")) return { name: "Instagram", icon: "📸" };
+    if (h.includes("facebook") || h === "fb.watch") return { name: "Facebook", icon: "📘" };
     return { name: h, icon: "🌐" };
   } catch { return { name: "Ukjent", icon: "🌐" }; }
 }
@@ -798,7 +958,8 @@ export default function App() {
                 <p className="modal-sub">Lim inn lenke fra en oppskriftsside — vi leser strukturdata direkte fra siden. Ingen AI, ingen konto.</p>
                 <div className="info-box">
                   ✅ Fungerer med: matprat.no, allrecipes.com, bbcgoodfood.com, og de fleste andre store oppskriftssider<br />
-                  ⚠️ Fungerer ikke alltid med: private blogger, Instagram, TikTok
+                  🎵 TikTok · 📸 Instagram · 📘 Facebook: Henter tittel og bilde (kun åpne profiler). Legg til ingredienser og steg manuelt.<br />
+                  ▶️ YouTube: Henter tittel og bilde automatisk.
                 </div>
                 <div className="input-row">
                   <input

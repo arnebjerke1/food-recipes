@@ -195,3 +195,75 @@ describe('Users API', () => {
     expect(res.body[0].username).toBe('bob');
   });
 });
+
+describe('Social recipe helpers', () => {
+  const { detectSocialPlatform, parseSocialCaption } = require('../src/routes/scraper');
+
+  describe('detectSocialPlatform', () => {
+    it('detects TikTok URLs', () => {
+      expect(detectSocialPlatform('https://www.tiktok.com/@user/video/123')).toBe('tiktok');
+      expect(detectSocialPlatform('https://tiktok.com/@user/video/456')).toBe('tiktok');
+    });
+
+    it('detects Instagram URLs', () => {
+      expect(detectSocialPlatform('https://www.instagram.com/p/ABC123/')).toBe('instagram');
+      expect(detectSocialPlatform('https://instagram.com/reel/XYZ/')).toBe('instagram');
+    });
+
+    it('detects Facebook URLs', () => {
+      expect(detectSocialPlatform('https://www.facebook.com/watch/?v=123')).toBe('facebook');
+      expect(detectSocialPlatform('https://fb.watch/abc123/')).toBe('facebook');
+    });
+
+    it('returns null for regular recipe sites', () => {
+      expect(detectSocialPlatform('https://www.matprat.no/oppskrifter/pasta/')).toBeNull();
+      expect(detectSocialPlatform('https://allrecipes.com/recipe/123')).toBeNull();
+    });
+
+    it('returns null for invalid URLs', () => {
+      expect(detectSocialPlatform('not-a-url')).toBeNull();
+    });
+  });
+
+  describe('parseSocialCaption', () => {
+    it('returns empty arrays for empty input', () => {
+      expect(parseSocialCaption('')).toEqual({ ingredients: [], steps: [] });
+      expect(parseSocialCaption(null)).toEqual({ ingredients: [], steps: [] });
+    });
+
+    it('parses English ingredient and step sections', () => {
+      const caption = [
+        'My delicious pasta!',
+        'Ingredients:',
+        '- 200g pasta',
+        '- 2 eggs',
+        'Steps:',
+        '1. Boil pasta',
+        '2. Mix eggs',
+      ].join('\n');
+      const { ingredients, steps } = parseSocialCaption(caption);
+      expect(ingredients).toEqual(['200g pasta', '2 eggs']);
+      expect(steps).toEqual(['Boil pasta', 'Mix eggs']);
+    });
+
+    it('parses Norwegian ingredient and step sections', () => {
+      const caption = [
+        'Ingredienser:',
+        '- 400g mel',
+        '- 3 egg',
+        'Fremgangsmåte:',
+        '1. Bland mel og egg',
+        '2. Stek i ovnen',
+      ].join('\n');
+      const { ingredients, steps } = parseSocialCaption(caption);
+      expect(ingredients).toEqual(['400g mel', '3 egg']);
+      expect(steps).toEqual(['Bland mel og egg', 'Stek i ovnen']);
+    });
+
+    it('returns empty arrays when no headings are found', () => {
+      const { ingredients, steps } = parseSocialCaption('Just a random caption with no structure');
+      expect(ingredients).toEqual([]);
+      expect(steps).toEqual([]);
+    });
+  });
+});
