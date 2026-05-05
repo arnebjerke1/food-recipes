@@ -78,7 +78,8 @@ async function extractSocialRecipe(url, platform) {
   };
 
   if (platform === 'tiktok') {
-    // TikTok oEmbed is a fixed, well-known endpoint — not affected by the user URL
+    // TikTok oEmbed is a fixed, well-known endpoint — not affected by the user URL.
+    // Errors (private video, network failure, etc.) propagate to the route handler's try-catch.
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
     const { data } = await axios.get(oembedUrl, { timeout: 10000 });
     recipe.title       = data.title || 'TikTok-oppskrift';
@@ -322,4 +323,4 @@ function parseServings(val) {
 
 module.exports = router;
 module.exports.detectSocialPlatform = detectSocialPlatform;
-module.exports.parseSocialCaption   = parseSocialCaption;
+module.exports.parseSocialCaption = parseSocialCaption;
