@@ -299,9 +299,10 @@ function parseCssRecipe(doc, url) {
 
     if (!ingredients.length && !steps.length) continue;
 
+    const DEFAULT_SERVINGS = "4";
     const timeText = pattern.time ? root.querySelector(pattern.time)?.textContent?.trim() : null;
     const servingsText = pattern.servings ? root.querySelector(pattern.servings)?.textContent?.trim() : null;
-    const servings = servingsText ? (servingsText.replace(/[^\d]/g, "") || "4") : "4";
+    const servings = (servingsText && servingsText.replace(/[^\d]/g, "")) || DEFAULT_SERVINGS;
 
     return { title, image, time: timeText || "?", servings, tags: [], ingredients, steps };
   }
