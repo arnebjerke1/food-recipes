@@ -151,7 +151,9 @@ public class AddRecipeActivity extends AppCompatActivity {
         recipe.title = title;
         recipe.time = manualTime.getText().toString().trim();
         recipe.servings = manualServings.getText().toString().trim();
-        recipe.savedAt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(new Date());
+        recipe.savedAt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()) {{
+            setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        }}.format(new Date());
 
         // Tags
         String tagsRaw = manualTags.getText().toString().trim();

@@ -119,7 +119,9 @@ public class MainActivity extends AppCompatActivity {
             "Server med ekstra parmesan og nykvernet pepper."
         );
         r.isVideoOnly = false;
-        r.savedAt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).format(new Date());
+        r.savedAt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()) {{
+            setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        }}.format(new Date());
         List<Recipe> list = new ArrayList<>();
         list.add(r);
         return list;
