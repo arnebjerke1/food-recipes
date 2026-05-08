@@ -178,9 +178,13 @@ router.post('/parse-url', requireAuth, async (req, res) => {
   // ── Regular website ────────────────────────────────────────────────────────
   try {
     const response = await axios.get(url, {
-      timeout: 10000,
+      timeout: 15000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; FoodRecipesBot/1.0)'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'nb-NO,nb;q=0.9,no;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
       }
     });
 
@@ -214,33 +218,53 @@ function extractRecipe($, url) {
   for (let i = 0; i < jsonLdScripts.length; i++) {
     try {
       const raw = $(jsonLdScripts[i]).html();
+      if (!raw) continue;
       const data = JSON.parse(raw);
 
-      let schemaData;
-      if (Array.isArray(data)) {
-        schemaData = data.find(d => d['@type'] === 'Recipe');
-      } else if (data['@graph'] && Array.isArray(data['@graph'])) {
-        schemaData = data['@graph'].find(d => d['@type'] === 'Recipe');
-      } else {
-        schemaData = data;
-      }
+      // Collect all schema objects from this block (handles @graph, arrays, and nesting)
+      const candidates = [];
+      const collect = (node) => {
+        if (!node) return;
+        if (Array.isArray(node)) { node.forEach(collect); return; }
+        if (typeof node !== 'object') return;
+        if (node['@graph']) collect(node['@graph']);
+        candidates.push(node);
+      };
+      collect(data);
 
-      if (schemaData && schemaData['@type'] === 'Recipe') {
+      const isRecipeType = (t) => t === 'Recipe' || (Array.isArray(t) && t.includes('Recipe'));
+      const schemaData = candidates.find(d => isRecipeType(d['@type']));
+
+      if (schemaData) {
         recipe.title = schemaData.name || '';
         recipe.description = schemaData.description || '';
-        recipe.image_url = Array.isArray(schemaData.image)
-          ? schemaData.image[0]
-          : (schemaData.image?.url || schemaData.image || '');
+
+        // image can be string, array of strings, or ImageObject
+        const img = schemaData.image;
+        if (Array.isArray(img)) {
+          recipe.image_url = typeof img[0] === 'string' ? img[0] : (img[0]?.url || '');
+        } else {
+          recipe.image_url = typeof img === 'string' ? img : (img?.url || '');
+        }
 
         recipe.ingredients = Array.isArray(schemaData.recipeIngredient)
-          ? schemaData.recipeIngredient
+          ? schemaData.recipeIngredient.map(s => String(s).trim()).filter(Boolean)
           : [];
 
-        const instructions = schemaData.recipeInstructions || [];
-        recipe.steps = instructions.map(inst => {
-          if (typeof inst === 'string') return inst;
-          return inst.text || inst.name || '';
-        }).filter(Boolean);
+        // recipeInstructions can be: string, HowToStep[], HowToSection[], or mixed
+        const raw_inst = schemaData.recipeInstructions;
+        if (typeof raw_inst === 'string') {
+          recipe.steps = raw_inst.split(/\.\s+|\n+/).map(s => s.trim()).filter(s => s.length > 5);
+        } else if (Array.isArray(raw_inst)) {
+          recipe.steps = raw_inst.flatMap(inst => {
+            if (typeof inst === 'string') return inst.trim() || [];
+            // HowToSection has itemListElement with nested HowToStep objects
+            if (inst['@type'] === 'HowToSection' && Array.isArray(inst.itemListElement)) {
+              return inst.itemListElement.map(s => (typeof s === 'string' ? s : (s.text || s.name || ''))).filter(Boolean);
+            }
+            return (inst.text || inst.name || '').trim() || [];
+          }).filter(Boolean);
+        }
 
         recipe.servings = parseServings(schemaData.recipeYield);
         recipe.prep_time = parseDuration(schemaData.prepTime);
@@ -269,31 +293,70 @@ function extractRecipe($, url) {
 
   recipe.image_url = $('meta[property="og:image"]').attr('content') || '';
 
-  // Try common ingredient selectors
+  // Try ingredient selectors — ordered from most specific (WP plugins) to generic
   const ingredientSelectors = [
+    // WP Recipe Maker (WPRM) — most popular WP recipe plugin
+    '.wprm-recipe-ingredient',
+    // Tasty Recipes
+    '.tasty-recipes-ingredients-body li',
+    '.tasty-recipe-ingredients li',
+    // Recipe Card Blocks by WPZOOM
+    '.recipe-card-ingredients li',
+    // Easy Recipe Plus
+    '.ERSIngredients li',
+    // Cookbook by Yummly
+    '.recipe-ingred_txt',
+    // Microdata / schema.org
     '[itemprop="recipeIngredient"]',
+    // Generic WP patterns
     '.recipe-ingredient',
     '.ingredients li',
+    '.ingredient-list li',
     '.ingredient',
-    '[class*="ingredient"] li'
+    '[class*="ingredient"] li',
   ];
 
   for (const sel of ingredientSelectors) {
-    const items = $(sel).map((_, el) => $(el).text().trim()).get().filter(Boolean);
+    let items;
+    if (sel === '.wprm-recipe-ingredient') {
+      // WPRM stores amount, unit, and name in separate child spans — join them
+      items = $(sel).map((_, el) => {
+        const amount = $(el).find('.wprm-recipe-ingredient-amount').text().trim();
+        const unit   = $(el).find('.wprm-recipe-ingredient-unit').text().trim();
+        const name   = $(el).find('.wprm-recipe-ingredient-name').text().trim();
+        return [amount, unit, name].filter(Boolean).join(' ');
+      }).get().filter(Boolean);
+    } else {
+      items = $(sel).map((_, el) => $(el).text().trim()).get().filter(Boolean);
+    }
     if (items.length > 0) {
       recipe.ingredients = items;
       break;
     }
   }
 
-  // Try common steps selectors
+  // Try steps selectors — ordered from most specific to generic
   const stepsSelectors = [
+    // WP Recipe Maker (WPRM)
+    '.wprm-recipe-instruction-text',
+    // Tasty Recipes
+    '.tasty-recipes-instructions-body li',
+    '.tasty-recipe-instructions li',
+    // Recipe Card Blocks by WPZOOM
+    '.recipe-card-directions li',
+    // Easy Recipe Plus
+    '.ERSInstructions li',
+    // Microdata / schema.org
     '[itemprop="recipeInstructions"] li',
+    // Generic WP patterns
     '.recipe-instruction',
     '.instructions li',
+    '.instruction-list li',
     '.steps li',
+    '.directions li',
     '[class*="instruction"] li',
-    '[class*="step"] li'
+    '[class*="step"] li',
+    '[class*="direction"] li',
   ];
 
   for (const sel of stepsSelectors) {
