@@ -367,6 +367,52 @@ function extractRecipe($, url) {
     }
   }
 
+  // ── Plain-blog-post fallback (e.g. glutenfrihet.no) ───────────────────────
+  // These sites write recipes as regular prose with a <ul> for ingredients
+  // and numbered <p> tags for steps — no recipe plugin at all.
+  if (recipe.ingredients.length === 0) {
+    // Find the <ul> that appears right after a "you need" / "ingredients" heading
+    const needHeading = /trenger\s+du|du\s+trenger|ingredients?|ingredienser|you\s+will\s+need/i;
+    let found = false;
+    $('p, h2, h3, h4, strong').each((_, el) => {
+      if (found) return;
+      const text = $(el).text().trim();
+      if (needHeading.test(text)) {
+        // Grab the next <ul> sibling
+        const nextUl = $(el).nextAll('ul').first();
+        const items = nextUl.find('li').map((__, li) => $(li).text().trim()).get().filter(Boolean);
+        if (items.length > 0) {
+          recipe.ingredients = items;
+          found = true;
+        }
+      }
+    });
+
+    // Last resort: biggest <ul> in the post content that looks like a list of ingredients
+    if (!found) {
+      let bestUl = null, bestCount = 0;
+      $('article ul, .entry-content ul, .post-content ul, .content ul').each((_, ul) => {
+        const count = $(ul).find('li').length;
+        if (count > bestCount && count <= 30) { bestUl = ul; bestCount = count; }
+      });
+      if (bestUl) {
+        recipe.ingredients = $(bestUl).find('li').map((_, li) => $(li).text().trim()).get().filter(Boolean);
+      }
+    }
+  }
+
+  if (recipe.steps.length === 0) {
+    // Numbered paragraphs: <p> starting with "1.", "2." etc. — common on Nordic recipe blogs
+    const numberedSteps = [];
+    $('p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (/^\d+[\.\)]\s+\S/.test(text) && text.length > 10) {
+        numberedSteps.push(text.replace(/^\d+[\.\)]\s+/, '').trim());
+      }
+    });
+    if (numberedSteps.length >= 2) recipe.steps = numberedSteps;
+  }
+
   return recipe;
 }
 
