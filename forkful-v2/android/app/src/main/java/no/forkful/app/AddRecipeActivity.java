@@ -76,6 +76,12 @@ public class AddRecipeActivity extends AppCompatActivity {
         saveBtn.setOnClickListener(v -> saveRecipe());
 
         switchTab(true);
+
+        // Pre-fill URL if launched from a share intent
+        String prefillUrl = getIntent().getStringExtra("prefill_url");
+        if (prefillUrl != null && !prefillUrl.isEmpty()) {
+            urlInput.setText(prefillUrl);
+        }
     }
 
     private void switchTab(boolean url) {

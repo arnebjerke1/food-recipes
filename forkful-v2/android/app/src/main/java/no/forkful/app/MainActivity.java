@@ -53,6 +53,34 @@ public class MainActivity extends AppCompatActivity {
 
         View btnAddFirst = findViewById(R.id.btn_add_first);
         btnAddFirst.setOnClickListener(v -> openAddRecipe());
+
+        // Handle URL shared from another app (ACTION_SEND)
+        handleShareIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    private void handleShareIntent(Intent intent) {
+        if (intent == null) return;
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
+        if (sharedText == null || sharedText.isEmpty()) return;
+        // Extract the first URL from the shared text
+        String url = null;
+        for (String word : sharedText.split("\\s+")) {
+            if (word.startsWith("http://") || word.startsWith("https://")) {
+                url = word;
+                break;
+            }
+        }
+        if (url == null) url = sharedText.trim();
+        Intent addIntent = new Intent(this, AddRecipeActivity.class);
+        addIntent.putExtra("prefill_url", url);
+        startActivityForResult(addIntent, REQUEST_ADD);
     }
 
     @Override
