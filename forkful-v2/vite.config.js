@@ -4,4 +4,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: process.env.VITE_CAPACITOR === 'true' ? './' : '/forkful/',
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.js'],
+  },
 })
